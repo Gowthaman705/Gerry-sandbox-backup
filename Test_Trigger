@@ -1,0 +1,21 @@
+trigger Test_Trigger on Test__c (before insert,before Update,after insert, after update) 
+{
+    
+    Test_Trigger_Handler handler = new Test_Trigger_Handler();
+    
+    if(Trigger.IsAfter && Trigger.IsInsert)
+    {
+        System.debug('System inside IsAfter insert');
+        handler.onAfterInsert(Trigger.NewMap, Trigger.OldMap);
+    }
+    
+    if(Trigger.isAfter && Trigger.isUpdate)
+    {
+        if(!Test_Trigger_Handler.secondcall) 
+        {
+            Test_Trigger_Handler.secondcall = true;
+            SYstem.debug('Test Trigger is after update triggering in class');
+            handler.onafterupdate(Trigger.NewMap, Trigger.OldMap);
+        }
+    }
+}
