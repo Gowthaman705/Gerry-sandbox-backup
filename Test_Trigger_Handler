@@ -1,0 +1,375 @@
+/*============================================================================================================
+*Trigger Name   : Test_Trigger_Handler
+*Description    : All the implementations related to Test Triggers should be handled here
+*Company        : M4B
+*Date           : 20th November, 2018
+*Version        : 1.0
+*============================================================================================================*/
+
+public class Test_Trigger_Handler
+{
+    Public static Boolean secondcall=false;
+    public void onAfterInsert(Map<Id, Test__c> newTestMap, Map<Id, Test__c> oldTestMap)
+    {   
+        createcase(newTestMap);
+    }
+    
+    public void onAfterUpdate(Map<Id, Test__c> newTestMap, Map<Id, Test__c> oldTestMap)
+    {
+        Map<Id, Test__c> filteredTestMap = new Map<Id, Test__c>();
+        System.debug(newtestmap);
+        
+        for(Test__c Test_for : newTestMap.values())
+        {
+            if(Test_for.Result__c != oldTestMap.get(Test_for.Id).Result__c && Test_for.Result__c != null && oldTestMap.get(Test_for.Id).Result__c == null)
+            {
+                filteredTestMap.put(Test_for.Id, Test_for);
+            }
+        }
+          System.debug(filteredTestMap); 
+        if(filteredTestMap.size() > 0)
+        {
+             System.debug(filteredTestMap.size());
+            createcase(filteredTestMap);
+        }
+    }
+    
+    
+    /*============================================================================================================
+*Method Name   : createcase
+*Description   : This method create Case against failed Pseudomonas, Legionella tests.
+*============================================================================================================*/
+    public void createcase(Map<Id, Test__c> newTestMap)
+    {
+        
+        Map<Id, Test__c> Test_Map = new Map<Id, Test__c>();
+        Set<Id> OutletId = new Set<Id>();
+        Map<Id, Case> Case_Map = new Map<Id, Case>();
+        Map<Id, Case> Case_Map_Ps = new Map<Id, Case>();
+        BusinessHours BusinessHoursValue = new BusinessHours();
+        Map<id,Case> Case_Upsert = new map<id,Case>();
+        Map<id,Case> Case_Upsert_Pseudo = new map<id,Case>();
+        List<Test__c> Test_Update = new List<Test__c>();
+        Map<id,Outlets__c> Outlet_Update = new Map<id,Outlets__c>();
+        List<Case> CaseCloseUpdate = new List<Case>();
+        Set<Id> Test_List =new Set<Id>();
+        set<string> existingTestKeys = new set<string>();  // to store the key for all the existing test with the compination of name+sampledate+outlet
+        set<id> allowedTestToUpdateCount  = new set<id>();
+        list<test__c> allNewTests = new list<test__c>();
+        set<date> sampleDates = new set<date>();
+        Set<Time> sampletimes = new Set<Time>();
+        Map<string, List<Test__c>> newTestsWithKeyMap = new Map<string, List<Test__c>>();
+        
+        try{
+                      
+            System.debug(newTestMap.keyset());
+            
+            for(Test__c TestFor : [Select id, Name, Result__c, Case__c, TestID2030__c, Color_Check__c, Sample__c, Sample__r.Name,Sample__r.sample_date__c,Sample__r.Sample_Time_Formula__c,Sample__r.Site__c, Sample__r.Outlet__c from Test__c where id =: newTestMap.keyset() and Result__c != null])
+            {
+                string name = TestFor.Name.contains('Legionella')?'Legi':TestFor.Name.contains('Pseudomonas')?'Pseu':'';
+                string key = name+'#'+TestFor.sample__r.sample_date__c+'#'+Testfor.Sample__r.Sample_Time_Formula__c+'#'+TestFor.Sample__r.Outlet__c;
+                Test_Map.put(TestFor.Id, TestFor);
+                OutletId.add(TestFor.Sample__r.Outlet__c);
+                sampleDates.add(TestFor.sample__r.sample_date__c);
+                sampletimes.add(TestFor.Sample__r.Sample_Time_Formula__c);
+                if(!newTestsWithKeyMap.containskey(key))
+                {
+                    newTestsWithKeyMap.put(key,new list<test__c>());
+                }
+                newTestsWithKeyMap.get(key).add(testfor);
+            }
+            //For getting existing in the outlet & on the same sample date & sample time
+            for(Test__c TestFor : [Select id, Name, Result__c, Case__c, TestID2030__c, Color_Check__c, Sample__c, Sample__r.Name,Sample__r.sample_date__c,Sample__r.Sample_Time_Formula__c,Sample__r.Site__c, Sample__r.Outlet__c from Test__c where Sample__r.Outlet__c =: OutletId and Sample__r.sample_date__c=:sampleDates and Sample__r.Sample_Time_Formula__c =: sampletimes and Result__c != null ] )
+            {
+                  if(TestFor.Name.contains('Legionella')||TestFor.Name.contains('Pseudomonas'))
+                {
+                string name = TestFor.Name.contains('Legionella')?'Legi':TestFor.Name.contains('Pseudomonas')?'Pseu':'';
+                string key = name+'#'+TestFor.sample__r.sample_date__c+'#'+TestFor.Sample__r.Sample_Time_Formula__c+'#'+TestFor.Sample__r.Outlet__c+'#'+TestFor.Result__c;
+                
+                if(!newTestMap.containskey(TestFor.id))
+                {
+                    existingTestKeys.add(key);
+                }
+                else
+                {
+                //skipping the result values is came on sampe sample date & sample time
+                    for(string keyz : newTestsWithKeyMap.keyset())
+                    {
+                        integer counter=0;
+                        for(test__c tst : newTestsWithKeyMap.get(keyz))
+                        {
+                            counter++;
+                            //if any postive values it changes to true
+                            if(tst.Color_Check__c)
+                            {
+                                allowedTestToUpdateCount.add(tst.id);
+                                break;
+                            }
+                            //Check last values if it zero only it change the condition to true
+                            else if(newTestsWithKeyMap.get(keyz).size()==counter)
+                            {
+                                allowedTestToUpdateCount.add(tst.id);
+                            }
+                        }
+                    }
+                }
+            }
+            }
+            System.debug(Test_Map);
+            System.debug(OutletId);
+            System.debug(existingTestKeys+' Allowedmap   '+allowedTestToUpdateCount);
+            for(BusinessHours BusinessHoursFor : [SELECT Id, Name FROM BusinessHours where IsDefault = true])
+            {
+                BusinessHoursValue = BusinessHoursFor;
+            }
+            System.debug(BusinessHoursValue);
+            
+            for(Case CaseFor : [Select id, Status,Passed_Count__c,Test_Passed_Count__c,Type__c, Outlet_ID__c from Case where Outlet_ID__c =: OutletId and Status = 'Open'])
+            {
+                if(casefor.Type__c == 'Legionella')
+                    Case_Map.put(CaseFor.Outlet_ID__c, CaseFor);
+                if(casefor.Type__c == 'Pseudomonas')
+                    Case_Map_Ps.put(CaseFor.Outlet_ID__c, CaseFor);
+            }
+            System.debug(Case_Map+'   '+Case_Map_Ps);
+            
+            for(Test__c TestFor : Test_Map.values())
+            {
+                if(TestFor.Name.contains('Legionella')||TestFor.Name.contains('Pseudomonas'))
+                {
+                    System.debug(TestFor.Color_Check__c);
+                    string name1 = TestFor.Name.contains('Legionella')?'Legi':TestFor.Name.contains('Pseudomonas')?'Pseu':'';
+                    string key1 = name1+'#'+TestFor.sample__r.sample_date__c+'#'+TestFor.Sample__r.Sample_Time_Formula__c+'#'+TestFor.Sample__r.Outlet__c+'#'+TestFor.Result__c;
+                    System.debug(key1+'   '+existingTestKeys.contains(key1)+'   '+allowedTestToUpdateCount.contains(TestFor.id));       
+                    if(TestFor.Color_Check__c && !existingTestKeys.contains(key1) && allowedTestToUpdateCount.contains(TestFor.id))
+                    {
+                        System.debug('Legionella failed');
+                        if((!Case_Map.containskey(TestFor.Sample__r.Outlet__c) && TestFor.Name.contains('Legionella'))||(!Case_Map_Ps.containskey(TestFor.Sample__r.Outlet__c) && TestFor.Name.contains('Pseudomonas')))
+                        {  
+                            Case CaseInsert = new Case();
+                            CaseInsert.BusinessHoursId = BusinessHoursValue.Id;
+                            CaseInsert.AccountId = TestFor.Sample__r.Site__c;
+                            CaseInsert.Status = 'Open';
+                            CaseInsert.Outlet_ID__c = TestFor.Sample__r.Outlet__c;
+                            CaseInsert.RecordTypeId = Schema.SObjectType.Case.getRecordTypeInfosByName().get('Sample Results Case').getRecordTypeId();
+                            CaseInsert.Test__c = TestFor.Id;
+                            CaseInsert.Passed_Count__c = 0;
+                            CaseInsert.Test_Passed_Count__c = 0;
+                            Test_List.add(TestFor.id);
+                            
+                            if(TestFor.Name.contains('Legionella'))
+                            {
+                                System.debug('Legionella if');
+                                CaseInsert.Subject = 'Failed Legionella Test Result for ' + TestFor.Sample__r.Name;
+                                CaseInsert.Type__c='Legionella';
+                                Case_Upsert.put(TestFor.Sample__r.Outlet__c,CaseInsert);
+                                Case_Map.put(TestFor.Sample__r.Outlet__c,CaseInsert);
+                            }
+                            
+                            if(TestFor.Name.contains('Pseudomonas'))
+                            {
+                                System.debug('Pseudomonas if');
+                                CaseInsert.Subject = 'Failed Pseudomonas Test Result for ' + TestFor.Sample__r.Name; 
+                                CaseInsert.Type__c='Pseudomonas';
+                                Case_Upsert_Pseudo.put(TestFor.Sample__r.Outlet__c,CaseInsert);
+                                Case_Map_Ps.put(TestFor.Sample__r.Outlet__c, CaseInsert);
+                            }
+                            
+                            System.debug( TestFor.Sample__r.Outlet__c+'   '+Case_Upsert.values());
+                            System.debug(TestFor.Sample__r.Outlet__c+'   '+Case_Upsert_Pseudo.values());  
+                            System.debug(TestFor.Sample__r.Outlet__c+'   '+Case_Upsert.values());   
+                        }
+                        else if(Case_Map.containskey(TestFor.Sample__r.Outlet__c) && TestFor.Name.contains('Legionella'))
+                        {
+                            Test_List.add(TestFor.id);
+                            Case_Map.get(TestFor.Sample__r.Outlet__c).Passed_Count__c = 0;
+                            Case_Map.get(TestFor.Sample__r.Outlet__c).Test_Passed_Count__c = 0;
+                            Case_Upsert.put(TestFor.Sample__r.Outlet__c,Case_Map.get(TestFor.Sample__r.Outlet__c));
+                        }
+                        else if(Case_Map_Ps.containskey(TestFor.Sample__r.Outlet__c) && TestFor.Name.contains('Pseudomonas'))
+                        {
+                            Test_List.add(TestFor.id);
+                            Case_Map_Ps.get(TestFor.Sample__r.Outlet__c).Passed_Count__c = 0;
+                            Case_Map_Ps.get(TestFor.Sample__r.Outlet__c).Test_Passed_Count__c = 0;
+                            Case_Upsert_Pseudo.put(TestFor.Sample__r.Outlet__c,Case_Map_Ps.get(TestFor.Sample__r.Outlet__c));
+                        }
+                    }
+                    else
+                    {
+                        System.debug('Legionella Or Pseudomonous passed');
+                        if(Case_Map.containskey(TestFor.Sample__r.Outlet__c)&&TestFor.name.contains('Legionella'))
+                        {
+                            System.debug('Passed Count>>>'+Case_Map.get(TestFor.Sample__r.Outlet__c).Passed_Count__c);
+                            
+                            if(Case_Map.get(TestFor.Sample__r.Outlet__c).Passed_Count__c == null)
+                            {
+                                Case_Map.get(TestFor.Sample__r.Outlet__c).Passed_Count__c = 0;
+                                Case_Map.get(TestFor.Sample__r.Outlet__c).Test_Passed_Count__c = 0;
+                            }
+                            string name = TestFor.Name.contains('Legionella')?'Legi':TestFor.Name.contains('Pseudomonas')?'Pseu':'';
+                            string key = name+'#'+TestFor.sample__r.sample_date__c+'#'+TestFor.Sample__r.Sample_Time_Formula__c+'#'+TestFor.Sample__r.Outlet__c+'#'+TestFor.Result__c;
+                            System.debug(key);       
+                            
+                            if( !existingTestKeys.contains(key) && allowedTestToUpdateCount.contains(TestFor.id) && (Case_Map.get(TestFor.Sample__r.Outlet__c).Passed_Count__c + 1) == 3)
+                            {
+                                System.debug(Case_Map);
+                                Case_Map.get(TestFor.Sample__r.Outlet__c).Passed_Count__c=0;
+                                Case_Map.get(TestFor.Sample__r.Outlet__c).Test_Passed_Count__c = Case_Map.get(TestFor.Sample__r.Outlet__c).Test_Passed_Count__c + 1;
+                                Case_Map.get(TestFor.Sample__r.Outlet__c).status='Closed';
+                                Case_Upsert.put(TestFor.Sample__r.Outlet__c,Case_Map.get(TestFor.Sample__r.Outlet__c));
+                                CaseCloseUpdate.add(Case_Map.get(TestFor.Sample__r.Outlet__c));
+                                Case_Map.remove(TestFor.Sample__r.Outlet__c);
+                                Test_List.add(TestFor.id);
+                                system.debug(Case_Map);
+                            }
+                            
+                            else
+                            {
+                                System.debug('Outlet not passed 3 test');
+                                if(Case_Map.get(TestFor.Sample__r.Outlet__c).Passed_Count__c == null)
+                                {
+                                    Case_Map.get(TestFor.Sample__r.Outlet__c).Passed_Count__c = 0;
+                                    Case_Map.get(TestFor.Sample__r.Outlet__c).Test_Passed_Count__c = 0;
+                                }
+                                else{
+                                    Test_List.add(TestFor.id);
+                                    
+                                    System.debug(key);
+                                    if(!existingTestKeys.contains(key) && allowedTestToUpdateCount.contains(TestFor.id))
+                                    {
+                                        System.debug(existingTestKeys);
+                                        Case_Map.get(TestFor.Sample__r.Outlet__c).Passed_Count__c = Case_Map.get(TestFor.Sample__r.Outlet__c).Passed_Count__c + 1;
+                                        Case_Map.get(TestFor.Sample__r.Outlet__c).Test_Passed_Count__c = 
+                                        Case_Map.get(TestFor.Sample__r.Outlet__c).Test_Passed_Count__c + 1;
+                                    }
+                                }
+                                Case_Map.get(TestFor.Sample__r.Outlet__c).Status = 'Open';
+                                
+                                Case_Upsert.put(TestFor.Sample__r.Outlet__c,Case_Map.get(TestFor.Sample__r.Outlet__c));
+                                
+                            }
+                        }
+                        else if(Case_Map_Ps.containskey(TestFor.Sample__r.Outlet__c)&&TestFor.name.contains('Pseudomonas'))
+                        {
+                            if(Case_Map_Ps.get(TestFor.Sample__r.Outlet__c).Passed_Count__c == null)
+                            {
+                                Case_Map_Ps.get(TestFor.Sample__r.Outlet__c).Passed_Count__c = 0;
+                                Case_Map_Ps.get(TestFor.Sample__r.Outlet__c).Test_Passed_Count__c = 0;
+                            }
+                            System.debug(Case_Map_Ps);
+                            string name = TestFor.Name.contains('Legionella')?'Legi':TestFor.Name.contains('Pseudomonas')?'Pseu':'';
+                            string key = name+'#'+TestFor.sample__r.sample_date__c+'#'+TestFor.Sample__r.Sample_Time_Formula__c+'#'+TestFor.Sample__r.Outlet__c+'#'+TestFor.Result__c;
+                            System.debug(key+'  '+existingTestKeys+'   '+!(existingTestKeys.contains(key)));        
+                            if(!existingTestKeys.contains(key) && allowedTestToUpdateCount.contains(TestFor.id) && (Case_Map_Ps.get(TestFor.Sample__r.Outlet__c).Passed_Count__c + 1) == 3)
+                            {
+                                System.debug(Case_Map_Ps+'    '+Case_Map_Ps.get(TestFor.Sample__r.Outlet__c).Passed_Count__c + 1);
+                                Case_Map_Ps.get(TestFor.Sample__r.Outlet__c).Passed_Count__c=0;
+                                Case_Map_Ps.get(TestFor.Sample__r.Outlet__c).Test_Passed_Count__c = Case_Map_Ps.get(TestFor.Sample__r.Outlet__c).Test_Passed_Count__c + 1;
+                                Case_Map_Ps.get(TestFor.Sample__r.Outlet__c).status='Closed';
+                                Case_Upsert_Pseudo.put(TestFor.Sample__r.Outlet__c,Case_Map_Ps.get(TestFor.Sample__r.Outlet__c));
+                                CaseCloseUpdate.add(Case_Map_Ps.get(TestFor.Sample__r.Outlet__c));
+                                Case_Map_Ps.remove(TestFor.Sample__r.Outlet__c);
+                                Test_List.add(TestFor.id);
+                                system.debug(Case_Map_Ps);
+                            } 
+                            else
+                            {
+                                System.debug('Outlet not passed 3 test');
+                                if(Case_Map_Ps.get(TestFor.Sample__r.Outlet__c).Passed_Count__c == null)
+                                {
+                                    Case_Map_Ps.get(TestFor.Sample__r.Outlet__c).Passed_Count__c = 0;
+                                    Case_Map_Ps.get(TestFor.Sample__r.Outlet__c).Test_Passed_Count__c = 0;
+                                }
+                                else
+                                {
+                                    Test_List.add(TestFor.id);
+                                    System.debug(Test_List.add(TestFor.id));
+                                      
+                                    string names = TestFor.Name.contains('Legionella')?'Legi':TestFor.Name.contains('Pseudomonas')?'Pseu':'';
+                                    string keys = names+'#'+TestFor.sample__r.sample_date__c+'#'+TestFor.Sample__r.Sample_Time_Formula__c+'#'+TestFor.Sample__r.Outlet__c;
+                                    System.debug(keys+'    '+existingTestKeys.contains(keys)+'    '+allowedTestToUpdateCount.contains(TestFor.id));
+                                    if(!existingTestKeys.contains(keys) && allowedTestToUpdateCount.contains(TestFor.id))
+                                    {
+                                        System.debug(existingTestKeys);
+                                        Case_Map_Ps.get(TestFor.Sample__r.Outlet__c).Passed_Count__c = Case_Map_Ps.get(TestFor.Sample__r.Outlet__c).Passed_Count__c + 1;
+                                        Case_Map_Ps.get(TestFor.Sample__r.Outlet__c).Test_Passed_Count__c = Case_Map_Ps.get(TestFor.Sample__r.Outlet__c).Test_Passed_Count__c + 1;
+                                    }
+                                }
+                                Case_Map_Ps.get(TestFor.Sample__r.Outlet__c).Status = 'Open';
+                                
+                                Case_Upsert_Pseudo.put(TestFor.Sample__r.Outlet__c,Case_Map_Ps.get(TestFor.Sample__r.Outlet__c));
+                            }
+                        }
+                    }
+                }
+                system.debug(Case_Upsert);
+                system.debug(Case_Upsert_Pseudo);
+            }
+            
+            System.debug(Case_Upsert);
+            if(Case_Upsert.size() > 0)
+            {
+                upsert Case_Upsert.values(); //Upserting Closed Legionella cases 
+            }
+            System.debug(Case_Upsert);
+            if(Case_Upsert_Pseudo.size() > 0)
+            {
+                upsert Case_Upsert_Pseudo.values();  //Upserting Closed Pseudomonas cases
+            }
+            
+            for(Test__c TestFor : Test_Map.values())
+            {
+                System.debug('>>>,<<<<<'+TestFor.Name);
+                if(TestFor.Name.contains('Legionella')&&Test_List.contains(TestFor.id))//&&TestFor.Color_Check__c
+                {
+                    System.debug(Case_Upsert.get(TestFor.Sample__r.Outlet__c).status+'  '+Case_Upsert.get(TestFor.Sample__r.Outlet__c).id);    
+                    TestFor.Case_Status__c=Case_Upsert.get(TestFor.Sample__r.Outlet__c).status;
+                    TestFor.Case__c = Case_Upsert.get(TestFor.Sample__r.Outlet__c).id;
+                    Test_Update.add(TestFor);
+                }
+                else if(TestFor.Name.contains('Pseudomonas')&&Test_List.contains(TestFor.id))//&&TestFor.Color_Check__c
+                {
+                    System.debug(Case_Upsert_Pseudo.get(TestFor.Sample__r.Outlet__c).status+'  '+Case_Upsert_Pseudo.get(TestFor.Sample__r.Outlet__c).id);  
+                    TestFor.Case_Status__c=Case_Upsert_Pseudo.get(TestFor.Sample__r.Outlet__c).status;
+                    TestFor.Case__c = Case_Upsert_Pseudo.get(TestFor.Sample__r.Outlet__c).id;
+                    Test_Update.add(TestFor);
+                }
+            }
+            
+            system.debug(CaseCloseUpdate);
+            if(CaseCloseUpdate.size() > 0)
+            {
+                update CaseCloseUpdate;   //updating Closed cases 
+            }
+            
+            system.debug(Test_Update);
+            if(Test_Update.size() > 0)
+            {
+                update Test_Update; // updating Test Records 
+            }
+        }
+        catch(exception e)
+        {
+            ExceptionFailureEmail(String.valueOf(e));
+        }
+    }
+    
+    public void ExceptionFailureEmail(String error)
+    {
+        Messaging.SingleEmailMessage mail = new Messaging.SingleEmailMessage();
+        try
+        {
+            String[] toAddresses = new String[] {Label.Exception_Email_Test_Trigger};
+                mail.setToAddresses(toAddresses);
+            mail.setSenderDisplayName('Salesforce Support');
+            mail.setSubject('Error on updating Test Results');
+            mail.setHtmlBody('Hi Team, <br/><br/>Test Results Creation/Updation failed due to <b>' + error + '</b><br/><br/>Kindly review the issue and report with the customer.<br/><br/><b>Regards,<br/>Salesforce Support</b>');
+            Messaging.sendEmail(new Messaging.SingleEmailMessage[] { mail });
+        }
+        catch(exception e)
+        {
+            System.debug('Exception raised due to ->'+e);
+        }
+    }
+    
+}
